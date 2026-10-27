@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../data/WeatherModel.dart';
+import '../data/WeatherStore.dart';
 
 class WeatherApp extends StatefulWidget {
   const WeatherApp({super.key});
@@ -10,40 +11,66 @@ class WeatherApp extends StatefulWidget {
 
 class _WeatherAppState extends State<WeatherApp> {
   Weather? _weather;
+  DateTime? _savedAt;
   bool _loading = true;
   String? _error;
+  String? _offlineNotice;
 
   @override
   void initState() {
     super.initState();
-    _loadWeather();
+    _init();
+  }
+
+  Future<void> _init() async {
+    final cached = await WeatherStore.load();
+    if (cached != null && mounted) {
+      setState(() {
+        _weather = cached.weather;
+        _savedAt = cached.savedAt;
+        _loading = false;
+      });
+    }
+    await _loadWeather();
   }
 
   Future<void> _loadWeather() async {
+    setState(() {
+      _loading = _weather == null;
+      _error = null;
+      _offlineNotice = null;
+    });
     try {
       final w = await fetchWeather(-1.9441, 30.0619);
+      await WeatherStore.save(w);
       if (!mounted) return;
       setState(() {
         _weather = w;
+        _savedAt = DateTime.now();
         _loading = false;
         _error = null;
+        _offlineNotice = null;
       });
     } catch (e) {
       debugPrint('Weather error: $e');
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = 'Could not load the weather.\nCheck your internet and try again.';
+        if (_weather == null) {
+          _error = 'Could not load the weather.\nCheck your internet and try again.';
+        } else {
+          _offlineNotice = 'Could not refresh. Showing saved weather from ${_formatSavedAt(_savedAt!)}.';
+        }
       });
     }
   }
 
+  String _formatSavedAt(DateTime time) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(time.hour)}:${two(time.minute)}';
+  }
 
   void _retry() {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
     _loadWeather();
   }
 
@@ -123,6 +150,33 @@ class _WeatherAppState extends State<WeatherApp> {
                           '${_weather!.temperature.round()}°C',
                           style: const TextStyle(fontSize: 56, fontWeight: FontWeight.bold),
                         ),
+                        if (_offlineNotice != null) ...[
+                          const SizedBox(height: 16),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.wifi_off, size: 18, color: Colors.orange),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _offlineNotice!,
+                                    style: const TextStyle(fontSize: 12.5),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: _retry,
+                                  child: const Text('Retry'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 32),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
