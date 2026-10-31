@@ -53,7 +53,7 @@ Future<Weather> fetchWeather(double lat, double lon) async {
   );
   final response = await http.get(url);
   if (response.statusCode != 200) {
-    throw Exception('Server error: \${response.statusCode}');
+    throw Exception('Server error: ${response.statusCode}');
   }
   return Weather.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
 }

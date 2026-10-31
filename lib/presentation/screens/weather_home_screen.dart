@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
+import '../../core/constants.dart';
 import '../../data/models/weather_model.dart';
 import '../../data/weather_store.dart';
 
@@ -71,15 +72,17 @@ class _WeatherHomeScreenState extends State<WeatherHomeScreen> {
       });
     } catch (e) {
       if (!mounted) return;
+      final now = _savedAt;
       setState(() {
         _loading = false;
         if (_weather == null) {
-          _error = e is LocationException
+          _error = e is _LocationException
               ? e.message
               : 'Could not load weather.\nCheck your internet and try again.';
         } else {
-          _offlineNotice =
-              'Could not refresh. Showing saved weather from ${_fmt(_savedAt!)}.';
+          _offlineNotice = now != null
+              ? 'Could not refresh. Showing saved weather from ${_fmt(now)}.'
+              : 'Could not refresh. Showing saved weather.';
         }
       });
     }
@@ -88,18 +91,17 @@ class _WeatherHomeScreenState extends State<WeatherHomeScreen> {
   Future<Position> _getPosition() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      throw LocationException('Location services are disabled. Please enable GPS.');
+      // Fall back to Kigali if GPS is off
+      return Future.error(
+          _LocationException('Location services disabled. Using Kigali fallback.'));
     }
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        throw LocationException('Location permission denied.');
-      }
     }
-    if (permission == LocationPermission.deniedForever) {
-      throw LocationException(
-          'Location permission permanently denied.\nEnable it in app settings.');
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      throw _LocationException('Location permission denied. Using Kigali fallback.');
     }
     return Geolocator.getCurrentPosition();
   }
@@ -115,9 +117,14 @@ class _WeatherHomeScreenState extends State<WeatherHomeScreen> {
   }
 
   String _todayText() {
-    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-    const months = ['January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'];
+    const days = [
+      'Monday', 'Tuesday', 'Wednesday', 'Thursday',
+      'Friday', 'Saturday', 'Sunday'
+    ];
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
     final now = DateTime.now();
     return '${days[now.weekday - 1]} ${now.day} ${months[now.month - 1]} ${now.year}';
   }
@@ -165,17 +172,21 @@ class _WeatherHomeScreenState extends State<WeatherHomeScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(_greeting(),
-                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w500)),
+                          style: const TextStyle(
+                              fontSize: 24, fontWeight: FontWeight.w500)),
                       const SizedBox(height: 4),
                       Text(_todayText(),
-                          style: const TextStyle(fontSize: 16, color: Colors.black45)),
+                          style: const TextStyle(
+                              fontSize: 16, color: Colors.black45)),
                       const SizedBox(height: 40),
                       if (_loading)
                         const CircularProgressIndicator()
                       else if (_error != null) ...[
-                        const Icon(Icons.wifi_off, size: 80, color: Colors.black26),
+                        const Icon(Icons.wifi_off,
+                            size: 80, color: Colors.black26),
                         const SizedBox(height: 12),
-                        Text(_error!, textAlign: TextAlign.center,
+                        Text(_error!,
+                            textAlign: TextAlign.center,
                             style: const TextStyle(fontSize: 16)),
                         const SizedBox(height: 16),
                         FilledButton.icon(
@@ -184,7 +195,8 @@ class _WeatherHomeScreenState extends State<WeatherHomeScreen> {
                           label: const Text('Retry'),
                         ),
                       ] else ...[
-                        Icon(_icon(_weather!), size: 120, color: _iconColor(_weather!)),
+                        Icon(_icon(_weather!),
+                            size: 120, color: _iconColor(_weather!)),
                         const SizedBox(height: 12),
                         Text('${_weather!.temperature.round()}°C',
                             style: const TextStyle(
@@ -207,7 +219,8 @@ class _WeatherHomeScreenState extends State<WeatherHomeScreen> {
                                 const SizedBox(width: 8),
                                 Expanded(
                                     child: Text(_offlineNotice!,
-                                        style: const TextStyle(fontSize: 12.5))),
+                                        style:
+                                            const TextStyle(fontSize: 12.5))),
                                 TextButton(
                                     onPressed: _loadWeather,
                                     child: const Text('Retry')),
@@ -252,7 +265,8 @@ class _StatTile extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
-  const _StatTile({required this.icon, required this.label, required this.value});
+  const _StatTile(
+      {required this.icon, required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
@@ -261,7 +275,8 @@ class _StatTile extends StatelessWidget {
         Icon(icon, color: Colors.black45),
         const SizedBox(height: 6),
         Text(value,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            style:
+                const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         Text(label,
             style: const TextStyle(fontSize: 13, color: Colors.black45)),
       ],
@@ -276,14 +291,20 @@ class _WeatherLogList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: logsRef.orderBy('fetchedAt', descending: true).limit(5).snapshots(),
+      stream: logsRef
+          .orderBy('fetchedAt', descending: true)
+          .limit(5)
+          .snapshots(),
       builder: (context, snap) {
-        if (!snap.hasData || snap.data!.docs.isEmpty) return const SizedBox.shrink();
+        if (!snap.hasData || snap.data!.docs.isEmpty) {
+          return const SizedBox.shrink();
+        }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Recent fetches',
-                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black45)),
+                style: TextStyle(
+                    fontWeight: FontWeight.bold, color: Colors.black45)),
             const SizedBox(height: 8),
             ...snap.data!.docs.map((doc) {
               final d = doc.data() as Map<String, dynamic>;
@@ -296,7 +317,8 @@ class _WeatherLogList extends StatelessWidget {
                 child: Text(
                   '$time  •  ${(d['temperature'] as num).round()}°C  '
                   '${(d['humidity'] as num)}% humidity',
-                  style: const TextStyle(fontSize: 13, color: Colors.black54),
+                  style:
+                      const TextStyle(fontSize: 13, color: Colors.black54),
                 ),
               );
             }),
@@ -308,7 +330,7 @@ class _WeatherLogList extends StatelessWidget {
   }
 }
 
-class LocationException implements Exception {
+class _LocationException implements Exception {
   final String message;
-  const LocationException(this.message);
+  const _LocationException(this.message);
 }
