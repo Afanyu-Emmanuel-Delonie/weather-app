@@ -26,7 +26,7 @@ class _WeatherAppState extends State<WeatherApp> {
     final cached = await WeatherStore.load();
     if (cached != null && mounted) {
       setState(() {
-        _weather = cached.weather;
+        _weather = cached.weather as Weather?;
         _savedAt = cached.savedAt;
         _loading = false;
       });
